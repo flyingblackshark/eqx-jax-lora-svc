@@ -12,7 +12,7 @@ from .mrd import MultiResolutionDiscriminator
 class Discriminator(eqx.Module):
     MRD:MultiResolutionDiscriminator
     MPD:MultiPeriodDiscriminator
-    MSG:ScaleDiscriminator
+    MSD:ScaleDiscriminator
     def __init__(self,hp,key):
         mrdkey,mpdkey,msdkey = jax.random.split(key,3)
         self.MRD = MultiResolutionDiscriminator(hp,mrdkey)

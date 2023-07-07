@@ -151,6 +151,8 @@ class SineGen(eqx.Module):
 
 class SourceModuleHnNSF(eqx.Module):
     l_sin_gen:SineGen
+    merge_w:jnp.ndarray
+    merge_b:jnp.ndarray
     def __init__(self,sampling_rate=32000,sine_amp=0.1,add_noise_std=0.003,voiced_threshod=0,*,key):
         #super(SourceModuleHnNSF, self).__init__()
         harmonic_num = 8
@@ -161,10 +163,10 @@ class SourceModuleHnNSF(eqx.Module):
 
         # to merge source harmonics into a single excitation
         #self.l_tanh = nn.tanh()
-        self.merge_w=np.asarray([
+        self.merge_w=jnp.asarray([
             -0.1044, -0.4892, -0.4733, 0.4337, -0.2321,
            -0.1889, 0.1315, -0.1002, 0.0590,])
-        self.merge_b=np.asarray([-0.2908])
+        self.merge_b=jnp.asarray([-0.2908])
 
     def __call__(self, x):
         """

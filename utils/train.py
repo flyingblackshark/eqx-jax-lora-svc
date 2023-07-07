@@ -109,6 +109,7 @@ def train(rank, args, chkpt_path, hp, hp_str):
         loss_d = loss_d / len(disc_fake)
         
         return loss_d
+    
     def combine_step(generator_model: Generator, optim_g:optax.GradientTransformation,discriminator_model: Discriminator,optim_d:optax.GradientTransformation,
                        ppg : jnp.ndarray  , pit : jnp.ndarray, spk : jnp.ndarray ,audio:jnp.ndarray):
       
@@ -121,8 +122,8 @@ def train(rank, args, chkpt_path, hp, hp_str):
         # Average across the devices.
         # grads_g = jax.lax.pmean(grads_g, axis_name='num_devices')
         # loss_g = jax.lax.pmean(loss_g, axis_name='num_devices')
-        # loss_m = jax.lax.pmean(mel_loss, axis_name='num_devices')
-        # loss_s = jax.lax.pmean(stft_loss, axis_name='num_devices')
+        loss_m = mel_loss
+        loss_s = stft_loss
         # Generate data with the Generator, critique it with the Discriminator.
         grad_fn_d = jax.value_and_grad(d_loss_fn, has_aux=False)
         params_d,static_d = eqx.partition(discriminator_model, eqx.is_array)
@@ -248,6 +249,15 @@ def train(rank, args, chkpt_path, hp, hp_str):
         loader = tqdm.tqdm(trainloader, desc='Loading train data')
 
         for spk, ppg, pit, audio in loader:
+            spk=jnp.asarray(spk)
+            ppg=jnp.asarray(ppg)
+            pit=jnp.asarray(pit)
+            audio=jnp.asarray(audio)
+            # print(spk.shape)
+            # print(ppg.shape)
+            # print(pit.shape)
+            # print(audio.shape)
+            print(num_devices)
             ppg,pit,spk,audio = jax.device_put((ppg,pit,spk,audio), shard)
             generator_model,optim_g,discriminator_model,optim_d,loss_g,loss_d,loss_m,loss_s=combine_step(generator_model,optim_g, discriminator_model,optim_d,ppg,pit,spk,audio)
 

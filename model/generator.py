@@ -17,10 +17,13 @@ from .snake import snake
 
 class SpeakerAdapter(eqx.Module):
     epsilon:float
-    def __init__(self,speaker_dim,adapter_dim,epsilon=1e-5):
+    W_scale:eqx.nn.Linear
+    W_bias:eqx.nn.Linear
+    def __init__(self,speaker_dim,adapter_dim,epsilon=1e-5,*,key):
         self.epsilon = epsilon
-        self.W_scale = eqx.nn.Linear(speaker_dim, adapter_dim)
-        self.W_bias = eqx.nn.Linear(speaker_dim,adapter_dim)
+        scale_key,bias_key = jax.random.split(key,2)
+        self.W_scale = eqx.nn.Linear(speaker_dim, adapter_dim,key=scale_key)
+        self.W_bias = eqx.nn.Linear(speaker_dim,adapter_dim,key=bias_key)
 
 
     def __call__(self, x, speaker_embedding):
@@ -47,26 +50,30 @@ class Generator(eqx.Module):
     adapter:list
     noise_convs:list
     ups:list
-    resblock:list
+    resblocks:list
     m_source:SourceModuleHnNSF
+    conv_post:eqx.nn.Conv1d
     def __init__(self,hp,key):
         self.num_kernels = len(hp.gen.resblock_kernel_sizes)
         self.num_upsamples = len(hp.gen.upsample_rates)
         # speaker adaper, 256 should change by what speaker encoder you use
         # pre conv
         pre_key,source_key,key = jax.random.split(key,3)
-        self.conv_pre = eqx.nn.Conv(hp.gen.ppg_channels,hp.gen.upsample_initial_channel, (7,), 1,key=pre_key)
+        self.conv_pre = eqx.nn.Conv1d(hp.gen.ppg_channels,hp.gen.upsample_initial_channel,7, 1,key=pre_key)
         # nsf
-        # self.f0_upsamp = torch.nn.Upsample(
-        self.scale_factor=np.prod(self.hp.gen.upsample_rates)
-        self.m_source = SourceModuleHnNSF(sampling_rate=self.hp.audio.sampling_rate,key=source_key)
+        self.adapter=[]
+        self.noise_convs=[]
+        self.ups=[]
+        self.resblocks=[]
+        self.scale_factor=np.prod(hp.gen.upsample_rates)
+        self.m_source = SourceModuleHnNSF(sampling_rate=hp.audio.sampling_rate,key=source_key)
         # transposed conv-based upsamplers. does not apply anti-aliasing
         
         for i, (u, k) in enumerate(zip(hp.gen.upsample_rates, hp.gen.upsample_kernel_sizes)):
             # spk
             speaker_key,key = jax.random.split(key,2)
             self.adapter.append(SpeakerAdapter(
-                256, self.hp.gen.upsample_initial_channel // (2 ** (i + 1)),key=speaker_key))
+                256, hp.gen.upsample_initial_channel // (2 ** (i + 1)),key=speaker_key))
             # print(f'ups: {i} {k}, {u}, {(k - u) // 2}')
             # base
             ups_key,key = jax.random.split(key,2)
@@ -78,34 +85,35 @@ class Generator(eqx.Module):
             )
             # nsf
             noise_key,key = jax.random.split(key,2)
-            if i + 1 < len(self.hp.gen.upsample_rates):
-                stride_f0 = np.prod(self.hp.gen.upsample_rates[i + 1:])
+            if i + 1 < len(hp.gen.upsample_rates):
+                stride_f0 = np.prod(hp.gen.upsample_rates[i + 1:])
                 stride_f0 = int(stride_f0)
                 self.noise_convs.append(
-                    eqx.nn.Conv(
+                    eqx.nn.Conv1d(
                         1,
-                        self.hp.gen.upsample_initial_channel // (2 ** (i + 1)),
-                        kernel_size=[stride_f0 * 2],
-                        strides=stride_f0,
+                        hp.gen.upsample_initial_channel // (2 ** (i + 1)),
+                        kernel_size=stride_f0 * 2,
+                        stride=stride_f0,
                         key=noise_key
                     )
                 )
             else:
                 self.noise_convs.append(
-                    eqx.nn.Conv(self.hp.gen.upsample_initial_channel //
-                           (2 ** (i + 1)), kernel_size=[1],key=noise_key)
+                    eqx.nn.Conv1d(1,hp.gen.upsample_initial_channel //
+                           (2 ** (i + 1)), kernel_size=1,key=noise_key)
                 )
 
         # residual blocks using anti-aliased multi-periodicity composition modules (AMP)
         for i in range(len(self.ups)):
-            ch = self.hp.gen.upsample_initial_channel // (2 ** (i + 1))
-            for k, d in zip(self.hp.gen.resblock_kernel_sizes, self.hp.gen.resblock_dilation_sizes):
+            ch = hp.gen.upsample_initial_channel // (2 ** (i + 1))
+            for k, d in zip(hp.gen.resblock_kernel_sizes, hp.gen.resblock_dilation_sizes):
                 amp_key,key = jax.random.split(key,2)
                 self.resblocks.append(AMPBlock(ch, k, d,key=amp_key))
 
         # post conv
         #self.activation_post = nn.leaky_relu(ch)
-        self.conv_post = eqx.nn.Conv(1, [7], 1, use_bias=False)
+        post_key,key = jax.random.split(key,2)
+        self.conv_post = eqx.nn.Conv1d(ch , 1, 7, 1, use_bias=False,key=post_key)
         # weight initialization
     def __call__(self, spk, x, f0, train=True):
         #rng = jax.random.PRNGKey(1234)

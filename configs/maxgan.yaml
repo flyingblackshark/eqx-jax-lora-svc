@@ -4,7 +4,7 @@ data:
 #############################
 train:
   num_workers: 8
-  batch_size: 64
+  batch_size: 16
   optimizer: 'adam'
   seed: 1234
   lr_decay: 0.999875
@@ -19,7 +19,7 @@ train:
 #############################
 audio:
   n_mel_channels: 100
-  segment_length: 16000 # Should be multiple of 320
+  segment_length: 10240 # Should be multiple of 320
   filter_length: 1024
   hop_length: 320 # WARNING: this can't be changed.
   win_length: 1024
